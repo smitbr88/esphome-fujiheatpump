@@ -52,12 +52,6 @@ class FujiAirCon : public PollingComponent, public climate::Climate {
         // print the current configuration
         void dump_config() override;
 
-        // handle a change in settings as detected by the HeatPump library.
-        void hpSettingsChanged();
-
-        // Handle a change in status as detected by the HeatPump library.
-        void hpStatusChanged(heatpumpStatus currentStatus);
-
         // Set up the component, initializing the HeatPump object.
         void setup() override;
 
@@ -75,10 +69,6 @@ class FujiAirCon : public PollingComponent, public climate::Climate {
 
         // Handle a request from the user to change settings.
         void control(const climate::ClimateCall &call) override;
-
-        // Use the temperature from an external sensor. Use
-        // set_remote_temp(0) to switch back to the internal sensor.
-        void set_remote_temperature(float);
 
     protected:
         // HeatPump object using the underlying Arduino library.

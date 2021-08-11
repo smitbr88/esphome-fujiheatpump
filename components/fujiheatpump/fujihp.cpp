@@ -15,7 +15,7 @@ FujiAirCon::FujiAirCon(
     PollingComponent{poll_interval}, // member initializers list
     hw_serial_{hw_serial}
 {
-    this->traits_.set_supports_action(true);
+    this->traits_.set_supports_action(false);
     this->traits_.set_supports_current_temperature(true);
     this->traits_.set_supports_two_point_target_temperature(false);
     this->traits_.set_supports_away(false);
@@ -40,11 +40,7 @@ void FujiAirCon::update() {
     //this->dump_config();
       hp.waitForFrame();     // attempt to read state from bus and place a reply frame in the buffer
       hp.sendPendingFrame(); // send any frame waiting in the buffer
-#ifndef USE_CALLBACKS
-    this->hpSettingsChanged();
-    heatpumpStatus currentStatus = hp->getStatus();
-    this->hpStatusChanged(currentStatus);
-#endif
+
       hp.getOnOff();
       hp.getMode();
       hp.getFanMode();
@@ -200,11 +196,6 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
     this->publish_state();
     // and the heat pump:
     hp.update();
-}
-
-void FujiAirCon::set_remote_temperature(float temp) {
-    ESP_LOGD(TAG, "Setting remote temp: %.1f", temp);
-    this->hp.setRemoteTemperature(temp);
 }
 
 void FujiAirCon::setup() {
