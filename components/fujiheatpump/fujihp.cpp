@@ -202,148 +202,6 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
     hp.update();
 }
 
-void FujiAirCon::hpSettingsChanged() {
-    heatpumpSettings currentSettings = hp.getSettings();
-
-    if (currentSettings.power == NULL) {
-        /*
-         * We should always get a valid pointer here once the HeatPump
-         * component fully initializes. If HeatPump hasn't read the settings
-         * from the unit yet (hp.connect() doesn't do this, sadly), we'll need
-         * to punt on the update. Likely not an issue when run in callback
-         * mode, but that isn't working right yet.
-         */
-        ESP_LOGW(TAG, "Waiting for HeatPump to read the settings the first time.");
-        delay(10);
-        return;
-    }
-
-    /*
-     * ************ HANDLE POWER AND MODE CHANGES ***********
-     * https://github.com/geoffdavis/HeatPump/blob/stream/src/HeatPump.h#L125
-     * const char* POWER_MAP[2]       = {"OFF", "ON"};
-     * const char* MODE_MAP[5]        = {"HEAT", "DRY", "COOL", "FAN", "AUTO"};
-     */
-    if (strcmp(currentSettings.power, 1) == 0) {
-        if (strcmp(currentSettings.mode, "HEAT") == 0) {
-            this->mode = climate::CLIMATE_MODE_HEAT;
-            if (heat_setpoint != currentSettings.temperature) {
-                heat_setpoint = currentSettings.temperature;
-                save(currentSettings.temperature, heat_storage);
-            }
-            this->action = climate::CLIMATE_ACTION_IDLE;
-        } else if (strcmp(currentSettings.mode, "DRY") == 0) {
-            this->mode = climate::CLIMATE_MODE_DRY;
-            this->action = climate::CLIMATE_ACTION_DRYING;
-        } else if (strcmp(currentSettings.mode, "COOL") == 0) {
-            this->mode = climate::CLIMATE_MODE_COOL;
-            if (cool_setpoint != currentSettings.temperature) {
-                cool_setpoint = currentSettings.temperature;
-                save(currentSettings.temperature, cool_storage);
-            }
-            this->action = climate::CLIMATE_ACTION_IDLE;
-        } else if (strcmp(currentSettings.mode, "FAN") == 0) {
-            this->mode = climate::CLIMATE_MODE_FAN_ONLY;
-            this->action = climate::CLIMATE_ACTION_FAN;
-        } else if (strcmp(currentSettings.mode, "AUTO") == 0) {
-            this->mode = climate::CLIMATE_MODE_HEAT_COOL;
-            if (auto_setpoint != currentSettings.temperature) {
-                auto_setpoint = currentSettings.temperature;
-                save(currentSettings.temperature, auto_storage);
-            }
-            this->action = climate::CLIMATE_ACTION_IDLE;
-        } else {
-            ESP_LOGW(
-                    TAG,
-                    "Unknown climate mode value %s received from HeatPump",
-                    currentSettings.mode
-            );
-        }
-    } else {
-        this->mode = climate::CLIMATE_MODE_OFF;
-        this->action = climate::CLIMATE_ACTION_OFF;
-    }
-
-    ESP_LOGI(TAG, "Climate mode is: %i", this->mode);
-
-    /*
-     * ******* HANDLE FAN CHANGES ********
-     *
-     * const char* FAN_MAP[6]         = {"AUTO", "QUIET", "1", "2", "3", "4"};
-     */
-    if (strcmp(currentSettings.fan, "2") == 0) {
-            this->fan_mode = climate::CLIMATE_FAN_LOW;
-    } else if (strcmp(currentSettings.fan, "3") == 0) {
-            this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
-    } else if (strcmp(currentSettings.fan, "4") == 0) {
-            this->fan_mode = climate::CLIMATE_FAN_HIGH;
-    } else { //case "AUTO" or default:
-        this->fan_mode = climate::CLIMATE_FAN_AUTO;
-    }
-    ESP_LOGI(TAG, "Fan mode is: %i", this->fan_mode);
-
-    /*
-     * ******** HANDLE TARGET TEMPERATURE CHANGES ********
-     */
-    this->target_temperature = currentSettings.temperature;
-    ESP_LOGI(TAG, "Target temp is: %f", this->target_temperature);
-
-    /*
-     * ******** Publish state back to ESPHome. ********
-     */
-    this->publish_state();
-}
-
-/**
- * Report changes in the current temperature sensed by the HeatPump.
- */
-void FujiAirCon::hpStatusChanged(heatpumpStatus currentStatus) {
-    this->current_temperature = currentStatus.roomTemperature;
-    switch (this->mode) {
-        case climate::CLIMATE_MODE_HEAT:
-            if (currentStatus.operating) {
-                this->action = climate::CLIMATE_ACTION_HEATING;
-            }
-            else {
-                this->action = climate::CLIMATE_ACTION_IDLE;
-            }
-            break;
-        case climate::CLIMATE_MODE_COOL:
-            if (currentStatus.operating) {
-                this->action = climate::CLIMATE_ACTION_COOLING;
-            }
-            else {
-                this->action = climate::CLIMATE_ACTION_IDLE;
-            }
-            break;
-        case climate::CLIMATE_MODE_HEAT_COOL:
-            this->action = climate::CLIMATE_ACTION_IDLE;
-            if (currentStatus.operating) {
-              if (this->current_temperature > this->target_temperature) {
-                  this->action = climate::CLIMATE_ACTION_COOLING;
-              } else if (this->current_temperature < this->target_temperature) {
-                  this->action = climate::CLIMATE_ACTION_HEATING;
-              }
-            }
-            break;
-        case climate::CLIMATE_MODE_DRY:
-            if (currentStatus.operating) {
-                this->action = climate::CLIMATE_ACTION_DRYING;
-            }
-            else {
-                this->action = climate::CLIMATE_ACTION_IDLE;
-            }
-            break;
-        case climate::CLIMATE_MODE_FAN_ONLY:
-            this->action = climate::CLIMATE_ACTION_FAN;
-            break;
-        default:
-            this->action = climate::CLIMATE_ACTION_OFF;
-    }
-
-    this->publish_state();
-}
-
 void FujiAirCon::set_remote_temperature(float temp) {
     ESP_LOGD(TAG, "Setting remote temp: %.1f", temp);
     this->hp.setRemoteTemperature(temp);
@@ -372,20 +230,6 @@ void FujiAirCon::setup() {
     this->fan_mode = climate::CLIMATE_FAN_OFF;
     this->swing_mode = climate::CLIMATE_SWING_OFF;
 
-#ifdef USE_CALLBACKS
-    hp.setSettingsChangedCallback(
-            [this]() {
-                this->hpSettingsChanged();
-            }
-    );
-
-    hp.setStatusChangedCallback(
-            [this](heatpumpStatus currentStatus) {
-                this->hpStatusChanged(currentStatus);
-            }
-    );
-#endif
-
     ESP_LOGCONFIG(
             TAG,
             "hw_serial(%p) is &Serial(%p)? %s",
@@ -393,19 +237,6 @@ void FujiAirCon::setup() {
             &Serial,
             YESNO(this->get_hw_serial_() == &Serial)
     );
-
-    ESP_LOGCONFIG(TAG, "Calling hp.connect(%p)", this->get_hw_serial_());
-
-    if (hp.connect(this->get_hw_serial_(), this->baud_)) {
-        hp.sync();
-    }
-    else {
-        ESP_LOGCONFIG(
-                TAG,
-                "Connection to HeatPump failed."
-                " Marking FujiAirCon component as failed."
-        );
-        this->mark_failed();
     }
 
     // create various setpoint persistence:
