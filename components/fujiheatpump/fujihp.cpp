@@ -19,9 +19,9 @@ FujiAirCon::FujiAirCon(
     this->traits_.set_supports_current_temperature(true);
     this->traits_.set_supports_two_point_target_temperature(false);
     this->traits_.set_supports_away(false);
-    this->traits_.set_visual_min_temperature(ESPMHP_MIN_TEMPERATURE);
-    this->traits_.set_visual_max_temperature(ESPMHP_MAX_TEMPERATURE);
-    this->traits_.set_visual_temperature_step(ESPMHP_TEMPERATURE_STEP);
+    this->traits_.set_visual_min_temperature(FUJIHP_MIN_TEMPERATURE);
+    this->traits_.set_visual_max_temperature(FUJIHP_MAX_TEMPERATURE);
+    this->traits_.set_visual_temperature_step(FUJIHP_TEMPERATURE_STEP);
 }
 
 void FujiAirCon::check_logger_conflict_() {
@@ -38,16 +38,17 @@ void FujiAirCon::check_logger_conflict_() {
 void FujiAirCon::update() {
     // This will be called every "update_interval" milliseconds.
     //this->dump_config();
-    this->hp->sync();
+      hp.waitForFrame();     // attempt to read state from bus and place a reply frame in the buffer
+      hp.sendPendingFrame(); // send any frame waiting in the buffer
 #ifndef USE_CALLBACKS
     this->hpSettingsChanged();
     heatpumpStatus currentStatus = hp->getStatus();
     this->hpStatusChanged(currentStatus);
 #endif
-}
-
-void FujiAirCon::set_baud_rate(int baud) {
-    this->baud_ = baud;
+      hp.getOnOff();
+      hp.getMode();
+      hp.getFanMode();
+      hp.getTemp();
 }
 
 /**
@@ -90,12 +91,12 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
     }
     switch (this->mode) {
         case climate::CLIMATE_MODE_COOL:
-            hp->setModeSetting("COOL");
-            hp->setPowerSetting("ON");
+            hp.setMode("COOL");
+            hp.setOnOff(1);
 
             if (has_mode){
                 if (cool_setpoint.has_value() && !has_temp) {
-                    hp->setTemperature(cool_setpoint.value());
+                    hp.setTemp(cool_setpoint.value());
                     this->target_temperature = cool_setpoint.value();
                 }
                 this->action = climate::CLIMATE_ACTION_IDLE;
@@ -103,11 +104,11 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
             }
             break;
         case climate::CLIMATE_MODE_HEAT:
-            hp->setModeSetting("HEAT");
-            hp->setPowerSetting("ON");
+            hp.setMode("HEAT");
+            hp.setOnOff(1);
             if (has_mode){
                 if (heat_setpoint.has_value() && !has_temp) {
-                    hp->setTemperature(heat_setpoint.value());
+                    hp.setTemp(heat_setpoint.value());
                     this->target_temperature = heat_setpoint.value();
                 }
                 this->action = climate::CLIMATE_ACTION_IDLE;
@@ -115,19 +116,19 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
             }
             break;
         case climate::CLIMATE_MODE_DRY:
-            hp->setModeSetting("DRY");
-            hp->setPowerSetting("ON");
+            hp.setMode("DRY");
+            hp.setOnOff(1);
             if (has_mode){
                 this->action = climate::CLIMATE_ACTION_DRYING;
                 updated = true;
             }
             break;
         case climate::CLIMATE_MODE_HEAT_COOL:
-            hp->setModeSetting("AUTO");
-            hp->setPowerSetting("ON");
+            hp.setMode("AUTO");
+            hp.setOnOff(1);
             if (has_mode){
                 if (auto_setpoint.has_value() && !has_temp) {
-                    hp->setTemperature(auto_setpoint.value());
+                    hp.setTemp(auto_setpoint.value());
                     this->target_temperature = auto_setpoint.value();
                 }
                 this->action = climate::CLIMATE_ACTION_IDLE;
@@ -135,8 +136,8 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
             updated = true;
             break;
         case climate::CLIMATE_MODE_FAN_ONLY:
-            hp->setModeSetting("FAN");
-            hp->setPowerSetting("ON");
+            hp.setMode("FAN");
+            hp.setOnOff(1);
             if (has_mode){
                 this->action = climate::CLIMATE_ACTION_FAN;
                 updated = true;
@@ -145,7 +146,7 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
         case climate::CLIMATE_MODE_OFF:
         default:
             if (has_mode){
-                hp->setPowerSetting("OFF");
+                hp.setOnOff(0);
                 this->action = climate::CLIMATE_ACTION_OFF;
                 updated = true;
             }
@@ -157,7 +158,7 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
             "control", "Sending target temp: %.1f",
             *call.get_target_temperature()
         );
-        hp->setTemperature(*call.get_target_temperature());
+        hp.setTemp(*call.get_target_temperature());
         this->target_temperature = *call.get_target_temperature();
         updated = true;
     }
@@ -168,74 +169,47 @@ void FujiAirCon::control(const climate::ClimateCall &call) {
         this->fan_mode = *call.get_fan_mode();
         switch(*call.get_fan_mode()) {
             case climate::CLIMATE_FAN_OFF:
-                hp->setPowerSetting("OFF");
-                updated = true;
-                break;
-            case climate::CLIMATE_FAN_DIFFUSE:
-                hp->setFanSpeed("QUIET");
+                hp.setOnOff(0);
                 updated = true;
                 break;
             case climate::CLIMATE_FAN_LOW:
-                hp->setFanSpeed("1");
+                hp.setFanMode(2);
                 updated = true;
                 break;
             case climate::CLIMATE_FAN_MEDIUM:
-                hp->setFanSpeed("2");
-                updated = true;
-                break;
-            case climate::CLIMATE_FAN_MIDDLE:
-                hp->setFanSpeed("3");
+                hp.setFanMode(3);
                 updated = true;
                 break;
             case climate::CLIMATE_FAN_HIGH:
-                hp->setFanSpeed("4");
+                hp.setFanMode(4);
                 updated = true;
                 break;
             case climate::CLIMATE_FAN_ON:
             case climate::CLIMATE_FAN_AUTO:
             default:
-                hp->setFanSpeed("AUTO");
+                hp.setFanMode(0);
                 updated = true;
                 break;
         }
     }
 
-    //const char* VANE_MAP[7]        = {"AUTO", "1", "2", "3", "4", "5", "SWING"};
-    if (call.get_swing_mode().has_value()) {
-        ESP_LOGV(TAG, "control - requested swing mode is %s",
-                *call.get_swing_mode());
 
-        this->swing_mode = *call.get_swing_mode();
-        switch(*call.get_swing_mode()) {
-            case climate::CLIMATE_SWING_OFF:
-                hp->setVaneSetting("AUTO");
-                updated = true;
-                break;
-            case climate::CLIMATE_SWING_VERTICAL:
-                hp->setVaneSetting("SWING");
-                updated = true;
-                break;
-            default:
-                ESP_LOGW(TAG, "control - received unsupported swing mode request.");
-
-        }
-    }
     ESP_LOGD(TAG, "control - Was HeatPump updated? %s", YESNO(updated));
 
     // send the update back to esphome:
     this->publish_state();
     // and the heat pump:
-    hp->update();
+    hp.update();
 }
 
 void FujiAirCon::hpSettingsChanged() {
-    heatpumpSettings currentSettings = hp->getSettings();
+    heatpumpSettings currentSettings = hp.getSettings();
 
     if (currentSettings.power == NULL) {
         /*
          * We should always get a valid pointer here once the HeatPump
          * component fully initializes. If HeatPump hasn't read the settings
-         * from the unit yet (hp->connect() doesn't do this, sadly), we'll need
+         * from the unit yet (hp.connect() doesn't do this, sadly), we'll need
          * to punt on the update. Likely not an issue when run in callback
          * mode, but that isn't working right yet.
          */
@@ -250,7 +224,7 @@ void FujiAirCon::hpSettingsChanged() {
      * const char* POWER_MAP[2]       = {"OFF", "ON"};
      * const char* MODE_MAP[5]        = {"HEAT", "DRY", "COOL", "FAN", "AUTO"};
      */
-    if (strcmp(currentSettings.power, "ON") == 0) {
+    if (strcmp(currentSettings.power, 1) == 0) {
         if (strcmp(currentSettings.mode, "HEAT") == 0) {
             this->mode = climate::CLIMATE_MODE_HEAT;
             if (heat_setpoint != currentSettings.temperature) {
@@ -297,33 +271,16 @@ void FujiAirCon::hpSettingsChanged() {
      *
      * const char* FAN_MAP[6]         = {"AUTO", "QUIET", "1", "2", "3", "4"};
      */
-    if (strcmp(currentSettings.fan, "QUIET") == 0) {
-        this->fan_mode = climate::CLIMATE_FAN_DIFFUSE;
-    } else if (strcmp(currentSettings.fan, "1") == 0) {
+    if (strcmp(currentSettings.fan, "2") == 0) {
             this->fan_mode = climate::CLIMATE_FAN_LOW;
-    } else if (strcmp(currentSettings.fan, "2") == 0) {
-            this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
     } else if (strcmp(currentSettings.fan, "3") == 0) {
-            this->fan_mode = climate::CLIMATE_FAN_MIDDLE;
+            this->fan_mode = climate::CLIMATE_FAN_MEDIUM;
     } else if (strcmp(currentSettings.fan, "4") == 0) {
             this->fan_mode = climate::CLIMATE_FAN_HIGH;
     } else { //case "AUTO" or default:
         this->fan_mode = climate::CLIMATE_FAN_AUTO;
     }
     ESP_LOGI(TAG, "Fan mode is: %i", this->fan_mode);
-
-    /* ******** HANDLE MITSUBISHI VANE CHANGES ********
-     * const char* VANE_MAP[7]        = {"AUTO", "1", "2", "3", "4", "5", "SWING"};
-     */
-    if (strcmp(currentSettings.vane, "SWING") == 0) {
-        this->swing_mode = climate::CLIMATE_SWING_VERTICAL;
-    }
-    else {
-        this->swing_mode = climate::CLIMATE_SWING_OFF;
-    }
-    ESP_LOGI(TAG, "Swing mode is: %i", this->swing_mode);
-
-
 
     /*
      * ******** HANDLE TARGET TEMPERATURE CHANGES ********
@@ -389,11 +346,12 @@ void FujiAirCon::hpStatusChanged(heatpumpStatus currentStatus) {
 
 void FujiAirCon::set_remote_temperature(float temp) {
     ESP_LOGD(TAG, "Setting remote temp: %.1f", temp);
-    this->hp->setRemoteTemperature(temp);
+    this->hp.setRemoteTemperature(temp);
 }
 
 void FujiAirCon::setup() {
     // This will be called by App.setup()
+    hp.connect(&Serial2, true); // second parameter is whether to init as a secondary controller
     this->banner();
     ESP_LOGCONFIG(TAG, "Setting up UART...");
     if (!this->get_hw_serial_()) {
@@ -415,13 +373,13 @@ void FujiAirCon::setup() {
     this->swing_mode = climate::CLIMATE_SWING_OFF;
 
 #ifdef USE_CALLBACKS
-    hp->setSettingsChangedCallback(
+    hp.setSettingsChangedCallback(
             [this]() {
                 this->hpSettingsChanged();
             }
     );
 
-    hp->setStatusChangedCallback(
+    hp.setStatusChangedCallback(
             [this](heatpumpStatus currentStatus) {
                 this->hpStatusChanged(currentStatus);
             }
@@ -436,10 +394,10 @@ void FujiAirCon::setup() {
             YESNO(this->get_hw_serial_() == &Serial)
     );
 
-    ESP_LOGCONFIG(TAG, "Calling hp->connect(%p)", this->get_hw_serial_());
+    ESP_LOGCONFIG(TAG, "Calling hp.connect(%p)", this->get_hw_serial_());
 
-    if (hp->connect(this->get_hw_serial_(), this->baud_)) {
-        hp->sync();
+    if (hp.connect(this->get_hw_serial_(), this->baud_)) {
+        hp.sync();
     }
     else {
         ESP_LOGCONFIG(
@@ -469,7 +427,7 @@ void FujiAirCon::setup() {
  * TEMPERATURE_STEPs from MIN_TEMPERATURE.
  **/
 void FujiAirCon::save(float value, ESPPreferenceObject& storage) {
-    uint8_t steps = (value - ESPMHP_MIN_TEMPERATURE) / ESPMHP_TEMPERATURE_STEP;
+    uint8_t steps = (value - FUJIHP_MIN_TEMPERATURE) / FUJIHP_TEMPERATURE_STEP;
     storage.save(&steps);
 }
 
@@ -478,7 +436,7 @@ optional<float> FujiAirCon::load(ESPPreferenceObject& storage) {
     if (!storage.load(&steps)) {
         return {};
     }
-    return ESPMHP_MIN_TEMPERATURE + (steps * ESPMHP_TEMPERATURE_STEP);
+    return FUJIHP_MIN_TEMPERATURE + (steps * FUJIHP_TEMPERATURE_STEP);
 }
 
 void FujiAirCon::dump_config() {
