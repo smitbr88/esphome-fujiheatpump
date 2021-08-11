@@ -1,9 +1,6 @@
-#define USE_CALLBACKS
-
 #include "esphome.h"
 #include "esphome/core/preferences.h"
 
-#include "FujiHeatPump.h"
 using namespace esphome;
 
 #ifndef FUJIHP_H
