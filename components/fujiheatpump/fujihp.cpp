@@ -1,4 +1,3 @@
-#include "fujihp.h"
 using namespace esphome;
 
 /**
