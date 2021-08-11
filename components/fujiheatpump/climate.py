@@ -84,4 +84,3 @@ def to_code(config):
 
     yield cg.register_component(var, config)
     yield climate.register_climate(var, config)
-    cg.add_library("https://github.com/unreality/FujiHeatPump", None)
