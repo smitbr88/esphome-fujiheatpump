@@ -1,6 +1,7 @@
 #include "esphome.h"
 #include "esphome/core/preferences.h"
 
+#include <FujiHeatPump>
 using namespace esphome;
 
 #ifndef FUJIHP_H
